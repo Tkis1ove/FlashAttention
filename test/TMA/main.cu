@@ -1,7 +1,7 @@
 #include <stdio.h>
-#include <cuda_bf16.h>
 
-#include "TMA.cuh"
+#include "tma_load.cuh"
+#include "tma_store.cuh"
 
 int main(int argc, char** argv) {
     int M = 256;
@@ -22,5 +22,9 @@ int main(int argc, char** argv) {
 
     cudaMemcpy((void*)data_d, (void*)data_h, sizeof(bf16) * M * N, cudaMemcpyHostToDevice);
 
-    host_fn<bf16, CTA_M, CTA_N>(data_d, M, N);
+    // tma_load<bf16, CTA_M, CTA_N>(data_d, M, N);
+    tma_store<bf16, CTA_M, CTA_N>(data_d, M, N);
+
+    cudaFree(data_d);
+    free(data_h);
 }

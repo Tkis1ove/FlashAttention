@@ -12,7 +12,7 @@ TARGET := tma_test
 
 all: $(TARGET)
 
-$(TARGET): $(SRC) TMA.cuh
+$(TARGET): $(SRC) tma_load.cuh tma_store.cuh
 	$(NVCC) $(NVCC_FLAGS) $(INCLUDES) $(SRC) -o $@
 
 clean:

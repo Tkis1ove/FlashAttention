@@ -13,18 +13,21 @@ __global__ void tma_load_kernel(__grid_constant__ const TmaLoad tma_load, GmemTe
 
     if (threadIdx.x == 0) {
         auto gmem_tensor_coord = tma_load.get_tma_tensor(shape(gmem_tensor));
-        if (blockIdx.x == 0 && blockIdx.y == 0) cute::print(gmem_tensor_coord);
+        // if (blockIdx.x == 0 && blockIdx.y == 0) cute::print(gmem_tensor_coord);
 
         auto gmem_tensor_coord_cta = local_tile(
             gmem_tensor_coord,
             Tile<Int<CTA_M>, Int<CTA_N>>{},
             make_coord(blockIdx.x, blockIdx.y));
 
+        // if (cute::block(1)) { cute::print_tensor(gmem_tensor_coord_cta); }
+
         initialize_barrier(tma_load_mbar, 1);
 
         set_barrier_transaction_bytes(tma_load_mbar, tma_transaction_bytes);
 
         auto tma_load_per_cta = tma_load.get_slice(Int<0>{});
+        if (cute::block(0)) { cute::print(tma_load_per_cta); }
         copy(tma_load.with(tma_load_mbar),
              tma_load_per_cta.partition_S(gmem_tensor_coord_cta),
              tma_load_per_cta.partition_D(smem_tensor));
@@ -35,7 +38,7 @@ __global__ void tma_load_kernel(__grid_constant__ const TmaLoad tma_load, GmemTe
 }
 
 template <typename T, int CTA_M, int CTA_N>
-void host_fn(T* data, int M, int N) {
+void tma_load(T* data, int M, int N) {
     using namespace cute;
 
     // create the GMEM tensor
