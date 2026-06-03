@@ -13,4 +13,74 @@ TMA是Hopper架构引入的新特性，用来在global memory和shared memory之
 ### Host code
 
 
+## TMA Store
 
+TMA Store 将数据从 SMEM 异步搬运到 GMEM。与 TMA Load 使用 mbar（memory barrier）不同，TMA Store 使用更简单的 **commit_group / wait_group** 机制。
+
+### Kernel 端的完整流程
+
+```cpp
+// 1. 线程写 SMEM
+for (int i = 0; i < CTA_M * CTA_N; ++i) {
+    smem_data[i] = (T)i;
+}
+
+// 2. 线程间同步 — 确保所有线程写完了
+__syncthreads();
+
+// 3. fence — 让 TMA 的 async proxy 能看到 SMEM 写入
+tma_store_fence();
+
+// 4. 发起 TMA Store（单线程）
+if (threadIdx.x == 0) {
+    auto tma_store_per_cta = tma_store.get_slice(Int<0>{});
+    copy(tma_store,
+         tma_store_per_cta.partition_S(smem_tensor),
+         tma_store_per_cta.partition_D(gmem_tensor_coord_cta));
+    tma_store_arrive();
+}
+
+// 5. 等待完成
+tma_store_wait<0>();
+```
+
+### `tma_store_fence()` — `fence.proxy.async.shared::cta`
+
+线程通过 LSU（Load-Store Unit）写 SMEM，TMA 硬件通过 async proxy 读 SMEM——这两条路径是独立的。`__syncthreads()` 只保证 LSU 侧所有线程能看到写入，但 async proxy 可能还看不到（数据卡在 store buffer 里）。`fence.proxy.async.shared::cta` 把 CTA 范围内的 SMEM store 刷到 async proxy 可见域。
+
+```
+线程 store → [LSU → store buffer → SMEM]
+TMA  load ← [async proxy] ───→ SMEM
+                              ↑
+              fence 打通这条通路
+```
+
+### `tma_store_arrive()` — `cp.async.bulk.commit_group`
+
+把之前发出的所有 TMA store 操作打成一个"完成组"。每调用一次 `commit_group`，内部组号递增（0 → 1 → 2 → ...）。
+
+### `tma_store_wait<Count>()` — `cp.async.bulk.wait_group.read Count`
+
+阻塞直到**还剩 ≤ Count 个组未完成**。例如：
+- `tma_store_wait<0>()` — 等所有组完成
+- `tma_store_wait<1>()` — 最多允许 1 个组 pending，其余完成
+
+多轮流水时可以不等最后一轮就复用 SMEM：
+```cpp
+copy(TMA_STORE, ...); commit_group;  // 组 0
+copy(TMA_STORE, ...); commit_group;  // 组 1
+copy(TMA_STORE, ...); commit_group;  // 组 2
+
+wait_group<1>();  // 组 0、1 完成，组 2 可以 pending
+// 此时可以安全覆盖组 0、1 用过的 SMEM 区域
+wait_group<0>();  // 全部完成
+```
+
+### 与 TMA Load 的对比
+
+| | TMA Load | TMA Store |
+|---|---|---|
+| 同步机制 | mbar（异步 barrier） | commit_group / wait_group |
+| 单向性 | 需 `with(mbar)` 绑定 arrive 通知 | 不需绑定，用 group 机制追踪完成 |
+| 完成通知 | TMA 硬件搬完后自动 arrive | `commit_group` + `wait_group` |
+| fence | 不需要（Load 不写 SMEM） | 需要 `tma_store_fence()` |
