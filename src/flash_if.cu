@@ -17,9 +17,11 @@ torch::Tensor flash_attention_v1_wrapper(torch::Tensor Q, torch::Tensor K, torch
 
     int B = Q.size(0), N = Q.size(1), H = Q.size(2), D = Q.size(3);
 
+    TORCH_CHECK(D == block_n, "D must be equal to block_n")
+
     auto O = torch::empty_like(Q);
 
-    constexpr int block_m = 64, block_n = 64;
+    constexpr int block_m = 128, block_n = 128;
 
     flash_attention_v1<T, block_m, block_n>(
         reinterpret_cast<T*>(Q.data_ptr<at::BFloat16>()),

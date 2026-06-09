@@ -3,7 +3,7 @@ from flash import flash_attn_v1
 
 
 def test_flash_attn_v1():
-    B, N, H, D = 2, 64, 8, 32
+    B, N, H, D = 2, 512, 8, 128
     Q = torch.randn(B, N, H, D, dtype=torch.bfloat16, device="cuda")
     K = torch.randn(B, N, H, D, dtype=torch.bfloat16, device="cuda")
     V = torch.randn(B, N, H, D, dtype=torch.bfloat16, device="cuda")
